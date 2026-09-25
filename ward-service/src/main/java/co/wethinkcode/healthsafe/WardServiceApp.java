@@ -75,7 +75,7 @@ public class WardServiceApp {
                 ctx.status(HttpStatus.NOT_FOUND).json(Map.of("error", "unknown ward: " + id));
                 return;
             }
-            Map<?, ?> body = ctx.bodyAsClass(Map.class);
+            Map body = ctx.bodyAsClass(Map.class);
             String payload = MAPPER.writeValueAsString(Map.of(
                     "wardId", id,
                     "equipment", body.getOrDefault("equipment", "unspecified"),
