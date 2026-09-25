@@ -4,6 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.javalin.Javalin;
 import io.javalin.http.HttpStatus;
 
+import co.wethinkcode.healthsafe.mq.MqConfig;
+import org.apache.activemq.ActiveMQConnectionFactory;
+
+import javax.jms.*;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,16 +23,18 @@ public class StaffingServiceApp {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws JMSException {
+        ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(MqConfig.BROKER_URL);
+        Connection connection = factory.createConnection();
+        connection.start();
+        Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        Topic topic = session.createTopic(MqConfig.TOPIC);
+        MessageProducer producer = session.createProducer(topic);
+        producer.setDeliveryMode(DeliveryMode.PERSISTENT);
 
         Javalin app = Javalin.create().start(7033);
 
         app.get("/health", ctx -> ctx.result("OK"));
-        // TODO (Provides on-call schedules for doctors based on ward and status.)
-        // Add domain endpoints for staffing-service here.
-
-        // MQ TODO: publishes to ActiveMQ topic MqConfig.TOPIC at MqConfig.BROKER_URL (see co.wethinkcode.healthsafe.mq.MqConfig)
-
 
         app.post("/schedule/{wardId}", ctx -> {
             String wardId = ctx.pathParam("wardId").toUpperCase();
@@ -46,7 +53,7 @@ public class StaffingServiceApp {
             Map<?, ?> alertBody = MAPPER.readValue(alertResponse.body(), Map.class);
             int level = ((Number) alertBody.get("level")).intValue();
 
-            int doctorsOnCall = 2 + level; // base on-call team, scaled by Emergency Status
+            int doctorsOnCall = 2 + level;
             boolean surgeStaffing = level >= 6;
 
             Map<String, Object> schedule = Map.of(
@@ -57,6 +64,7 @@ public class StaffingServiceApp {
                     "generatedAt", Instant.now().toString()
             );
 
+            producer.send(session.createTextMessage(MAPPER.writeValueAsString(schedule)));
             ctx.json(schedule);
         });
     }
