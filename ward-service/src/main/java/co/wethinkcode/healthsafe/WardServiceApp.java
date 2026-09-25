@@ -48,6 +48,11 @@ public class WardServiceApp {
             }
         });
 
+        Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        Queue equipmentQueue = producerSession.createQueue(MqConfig.QUEUE);
+        MessageProducer equipmentFailureProducer = producerSession.createProducer(equipmentQueue);
+        equipmentFailureProducer.setDeliveryMode(DeliveryMode.PERSISTENT); // guaranteed delivery
+
         Javalin app = Javalin.create().start(7031);
 
         app.get("/health", ctx -> ctx.result("OK"));
@@ -62,6 +67,23 @@ public class WardServiceApp {
                 return;
             }
             ctx.json(ward);
+        });
+
+        app.post("/wards/{id}/equipment-failure", ctx -> {
+            String id = ctx.pathParam("id").toUpperCase();
+            if (!WARDS_BY_ID.containsKey(id)) {
+                ctx.status(HttpStatus.NOT_FOUND).json(Map.of("error", "unknown ward: " + id));
+                return;
+            }
+            Map<?, ?> body = ctx.bodyAsClass(Map.class);
+            String payload = MAPPER.writeValueAsString(Map.of(
+                    "wardId", id,
+                    "equipment", body.getOrDefault("equipment", "unspecified"),
+                    "description", body.getOrDefault("description", ""),
+                    "timestamp", java.time.Instant.now().toString()
+            ));
+            equipmentFailureProducer.send(producerSession.createTextMessage(payload));
+            ctx.status(HttpStatus.ACCEPTED).json(Map.of("status", "equipment failure alert queued"));
         });
     }
 
